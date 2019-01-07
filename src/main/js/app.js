@@ -1,25 +1,124 @@
 const React = require('react');
 const ReactDOM = require('react-dom');
 const client = require('./client');
+const follow = require('./follow')
+
+const root = '/api';
+const defaultPageSize = 2;
 
 class App extends React.Component {
 
     constructor(props) {
         super(props);
-        this.state = {lectures: []};
+        this.state = {lectures: [], attributes: [], pageSize: defaultPageSize, links:{}};
+        this.onCreate = this.onCreate.bind(this);
+    }
+
+    loadFromServer(pageSize){
+        follow(client, root, [{rel: 'lectures', params: {size : pageSize}}])
+            .then(lectureCollection => {
+                return client({
+                    method : 'GET',
+                    path: lectureCollection.entity._links.profile.href,
+                    headers: {'Accept' : 'application/schema+json'}
+                }).then(schema => {
+                    this.schema = schema.entity;
+                    return lectureCollection;
+                });
+            }).done(lectureCollection =>{
+                this.setState({
+                    lectures : lectureCollection.entity._embedded.lectures,
+                    attributes: Object.keys(this.schema.properties),
+                    pageSize : pageSize,
+                    links: lectureCollection.entity._links
+                });
+            });
     }
 
     componentDidMount() {
-        client({method: 'GET', path: '/api/lectures'}).done(response => {
-            this.setState({lectures: response.entity._embedded.lectures});
+        this.loadFromServer(this.state.pageSize);
+    }
+
+    onCreate(newLecture) {
+        follow(client, root, ['lectures']).then(lectureCollection => {
+            return client({
+                method: 'POST',
+                path: lectureCollection.entity._links.self.href,
+                entity: newLecture,
+                headers: {'Content-Type': 'application/json'}
+            })
+        }).then(response => {
+            return follow(client, root, [
+                {rel: 'lectures', params: {'size': this.state.pageSize}}]);
+        }).done(response => {
+            if (typeof response.entity._links.last !== "undefined") {
+                this.onNavigate(response.entity._links.last.href);
+            } else {
+                this.onNavigate(response.entity._links.self.href);
+            }
         });
     }
 
     render() {
         return (
-            <LectureList lectures={this.state.lectures}/>
+            <div>
+                <CreateDialog attributes={this.state.attributes} onCreate={this.onCreate}/>
+                <LectureList lectures={this.state.lectures}/>
+            </div>
         )
     }
+}
+
+class CreateDialog extends React.Component {
+
+	constructor(props) {
+		super(props);
+		this.handleSubmit = this.handleSubmit.bind(this);
+	}
+
+	handleSubmit(e) {
+		e.preventDefault();
+		const newLecture = {};
+		this.props.attributes.forEach(attribute => {
+			newLecture[attribute] = ReactDOM.findDOMNode(this.refs[attribute]).value.trim();
+		});
+		this.props.onCreate(newLecture);
+
+		// clear out the dialog's inputs
+		this.props.attributes.forEach(attribute => {
+			ReactDOM.findDOMNode(this.refs[attribute]).value = '';
+		});
+
+		// Navigate away from the dialog to hide it.
+		window.location = "#";
+	}
+
+	render() {
+		const inputs = this.props.attributes.map(attribute =>
+			<p key={attribute}>
+				<input type="text" placeholder={attribute} ref={attribute} className="field"/>
+			</p>
+		);
+
+		return (
+			<div>
+				<a href="#createLecture">Create</a>
+
+				<div id="createLecture" className="modalDialog">
+					<div>
+						<a href="#" title="Close" className="close">X</a>
+
+						<h2>Create new lecture</h2>
+
+						<form>
+							{inputs}
+							<button onClick={this.handleSubmit}>Create</button>
+						</form>
+					</div>
+				</div>
+			</div>
+		)
+	}
 }
 
 class LectureList extends React.Component{
@@ -28,7 +127,7 @@ class LectureList extends React.Component{
             <Lecture key={lecture._links.self.href} lecture={lecture}/>
         );
         return (
-            <table border="1">
+            <table>
                 <tbody>
                 <tr>
                     <th>ID</th>

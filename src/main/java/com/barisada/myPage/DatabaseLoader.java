@@ -19,10 +19,16 @@ public class DatabaseLoader implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-        Lecture lecture1 = new Lecture("Lecutre # 1",
-                "My first Lecture",
-                "https://www.youtube.com/playlist?list=PLXRLrpkaZYHYfb8cW1S2fnR_uFM55k1gs",
-                "admin", "admin", LocalDateTime.now(), LocalDateTime.now());
-        this.repository.save(lecture1);
+        String url1 = "https://www.youtube.com/playlist?list=PLXRLrpkaZYHYfb8cW1S2fnR_uFM55k1gs";
+        this.repository.save(new Lecture("Lecutre # 1", "My first Lecture", url1,"admin", "admin", LocalDateTime.now(), LocalDateTime.now()));
+        this.repository.save(new Lecture("Lecutre # 2", "My second Lecture", url1,"admin", "admin", LocalDateTime.now(), LocalDateTime.now()));
+        this.repository.save(new Lecture("Lecutre # 3", "My third Lecture", url1,"admin", "admin", LocalDateTime.now(), LocalDateTime.now()));
+        this.repository.save(new Lecture("Lecutre # 4", "My 4번째 Lecture", url1,"admin", "admin", LocalDateTime.now(), LocalDateTime.now()));
+        this.repository.save(new Lecture("Lecutre # 5", "My fifth Lecture", url1,"admin", "admin", LocalDateTime.now(), LocalDateTime.now()));
+        this.repository.save(new Lecture("Lecutre # 6", "My 6 Lecture", url1,"admin", "admin", LocalDateTime.now(), LocalDateTime.now()));
+        this.repository.save(new Lecture("Lecutre # 7", "My SEVEN Lecture", url1,"admin", "admin", LocalDateTime.now(), LocalDateTime.now()));
+        this.repository.save(new Lecture("Lecutre # 8", "My eighth Lecture", url1,"admin", "admin", LocalDateTime.now(), LocalDateTime.now()));
+        this.repository.save(new Lecture("Lecutre # 9", "My NIN Lecture", url1,"admin", "admin", LocalDateTime.now(), LocalDateTime.now()));
+        this.repository.save(new Lecture("Lecutre # 10", "My 10th Lecture", url1,"admin", "admin", LocalDateTime.now(), LocalDateTime.now()));
     }
 }
