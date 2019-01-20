@@ -4,7 +4,7 @@ const client = require('./client');
 const follow = require('./follow')
 
 const root = '/api';
-const defaultPageSize = 2;
+const defaultPageSize = 3;
 
 class App extends React.Component {
 
@@ -12,6 +12,7 @@ class App extends React.Component {
         super(props);
         this.state = {lectures: [], attributes: [], pageSize: defaultPageSize, links:{}};
         this.onCreate = this.onCreate.bind(this);
+        this.onNavigate = this.onNavigate.bind(this);
     }
 
     loadFromServer(pageSize){
@@ -59,11 +60,27 @@ class App extends React.Component {
         });
     }
 
+    onNavigate(navUri) {
+        client({method: 'GET', path: navUri})
+        .done(lectureCollection => {
+            this.setState({
+                lectures: lectureCollection.entity._embedded.lectures,
+                attributes: this.state.attributes,
+                pageSize: this.state.pageSize,
+                links: lectureCollection.entity._links
+            });
+        });
+    }
+
     render() {
         return (
             <div>
                 <CreateDialog attributes={this.state.attributes} onCreate={this.onCreate}/>
-                <LectureList lectures={this.state.lectures}/>
+                <LectureList lectures={this.state.lectures} 
+                                        links={this.state.links}  
+                                        pageSize={this.state.pageSize}
+							            onNavigate={this.onNavigate}
+                                        />
             </div>
         )
     }
@@ -122,23 +139,73 @@ class CreateDialog extends React.Component {
 }
 
 class LectureList extends React.Component{
+    
+    constructor(props) {
+		super(props);
+		this.handleNavFirst = this.handleNavFirst.bind(this);
+		this.handleNavPrev = this.handleNavPrev.bind(this);
+		this.handleNavNext = this.handleNavNext.bind(this);
+		this.handleNavLast = this.handleNavLast.bind(this);
+    }
+    
+    handleNavFirst(e){
+        e.preventDefault();
+        this.props.onNavigate(this.props.links.first.href);
+    }
+    
+    handleNavPrev(e) {
+        e.preventDefault();
+        this.props.onNavigate(this.props.links.prev.href);
+    }
+    
+    handleNavNext(e) {
+        e.preventDefault();
+        this.props.onNavigate(this.props.links.next.href);
+    }
+    
+    handleNavLast(e) {
+        e.preventDefault();
+        this.props.onNavigate(this.props.links.last.href);
+    }
+
     render() {
         const lectures = this.props.lectures.map(lecture =>
-            <Lecture key={lecture._links.self.href} lecture={lecture}/>
+            <Lecture key={lecture._links.self.href} lecture={lecture} onDelete={this.props.onDelete}/>
         );
+    
+        const navLinks = [];
+        if ("first" in this.props.links) {
+            navLinks.push(<button key="first" onClick={this.handleNavFirst}>&lt;&lt;</button>);
+        }
+        if ("prev" in this.props.links) {
+            navLinks.push(<button key="prev" onClick={this.handleNavPrev}>&lt;</button>);
+        }
+        if ("next" in this.props.links) {
+            navLinks.push(<button key="next" onClick={this.handleNavNext}>&gt;</button>);
+        }
+        if ("last" in this.props.links) {
+            navLinks.push(<button key="last" onClick={this.handleNavLast}>&gt;&gt;</button>);
+        }
+
         return (
-            <table>
-                <tbody>
-                <tr>
-                    <th>ID</th>
-                    <th>Title</th>
-                    <th>Description</th>
-                    <th>Writer</th>
-                    <th>마지막 수정 일시</th>
-                </tr>
-                {lectures}
-                </tbody>
-            </table>
+            <div>
+                <input ref="pageSize" defaultValue={this.props.pageSize} onInput={this.handleInput}/>
+                <table>
+                    <tbody>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Description</th>
+                        <th>Writer</th>
+                        <th>마지막 수정 일시</th>
+                    </tr>
+                    {lectures}
+                    </tbody>
+                </table>
+                <div>
+                    {navLinks}
+                </div>
+            </div>
         );
     }
 }
