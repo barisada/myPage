@@ -12,6 +12,8 @@ class App extends React.Component {
         super(props);
         this.state = {lectures: [], attributes: [], pageSize: defaultPageSize, links:{}};
         this.onCreate = this.onCreate.bind(this);
+        this.onDelete = this.onDelete.bind(this);
+        this.updatePageSize = this.updatePageSize.bind(this);
         this.onNavigate = this.onNavigate.bind(this);
     }
 
@@ -60,6 +62,18 @@ class App extends React.Component {
         });
     }
 
+    onDelete(lecture) {
+        client({method: 'DELETE', path: lecture._links.self.href}).done(response => {
+            this.loadFromServer(this.state.pageSize);
+        });
+    }
+
+    updatePageSize(pageSize) {
+        if (pageSize !== this.state.pageSize) {
+            this.loadFromServer(pageSize);
+        }
+    }
+
     onNavigate(navUri) {
         client({method: 'GET', path: navUri})
         .done(lectureCollection => {
@@ -79,7 +93,9 @@ class App extends React.Component {
                 <LectureList lectures={this.state.lectures} 
                                         links={this.state.links}  
                                         pageSize={this.state.pageSize}
-							            onNavigate={this.onNavigate}
+                                        onNavigate={this.onNavigate}
+                                        onDelete={this.onDelete}
+                                        updatePageSize={this.updatePageSize}
                                         />
             </div>
         )
@@ -146,6 +162,7 @@ class LectureList extends React.Component{
 		this.handleNavPrev = this.handleNavPrev.bind(this);
 		this.handleNavNext = this.handleNavNext.bind(this);
 		this.handleNavLast = this.handleNavLast.bind(this);
+		this.handleInput = this.handleInput.bind(this);
     }
     
     handleNavFirst(e){
@@ -166,6 +183,17 @@ class LectureList extends React.Component{
     handleNavLast(e) {
         e.preventDefault();
         this.props.onNavigate(this.props.links.last.href);
+    }
+
+    handleInput(e) {
+        e.preventDefault();
+        const pageSize = ReactDOM.findDOMNode(this.refs.pageSize).value;
+        if (/^[0-9]+$/.test(pageSize)) {
+            this.props.updatePageSize(pageSize);
+        } else {
+            ReactDOM.findDOMNode(this.refs.pageSize).value =
+                pageSize.substring(0, pageSize.length - 1);
+        }
     }
 
     render() {
@@ -192,14 +220,15 @@ class LectureList extends React.Component{
                 <input ref="pageSize" defaultValue={this.props.pageSize} onInput={this.handleInput}/>
                 <table>
                     <tbody>
-                    <tr>
-                        <th>ID</th>
-                        <th>Title</th>
-                        <th>Description</th>
-                        <th>Writer</th>
-                        <th>마지막 수정 일시</th>
-                    </tr>
-                    {lectures}
+                        <tr>
+                            <th>ID</th>
+                            <th>Title</th>
+                            <th>Description</th>
+                            <th>Writer</th>
+                            <th>마지막 수정 일시</th>
+                            <th>삭제</th>
+                        </tr>
+                        {lectures}
                     </tbody>
                 </table>
                 <div>
@@ -211,6 +240,16 @@ class LectureList extends React.Component{
 }
 
 class Lecture extends React.Component{
+    
+	constructor(props) {
+		super(props);
+		this.handleDelete = this.handleDelete.bind(this);
+	}
+
+	handleDelete() {
+		this.props.onDelete(this.props.lecture);
+    }
+    
     render() {
         return (
             <tr>
@@ -219,6 +258,9 @@ class Lecture extends React.Component{
                 <td>{this.props.lecture.description}</td>
                 <td>{this.props.lecture.creator}</td>
                 <td>{this.props.lecture.updatedAt}</td>
+                <td>
+					<button onClick={this.handleDelete}>Delete</button>
+				</td>
             </tr>
         )
     }
