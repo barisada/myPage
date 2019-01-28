@@ -2,6 +2,7 @@ const React = require('react');
 const ReactDOM = require('react-dom');
 const client = require('./client');
 const follow = require('./follow')
+const when = require('when');
 
 const root = '/api';
 const defaultPageSize = 3;
@@ -13,6 +14,7 @@ class App extends React.Component {
         this.state = {lectures: [], attributes: [], pageSize: defaultPageSize, links:{}};
         this.onCreate = this.onCreate.bind(this);
         this.onDelete = this.onDelete.bind(this);
+        this.onUpdate = this.onUpdate.bind(this);
         this.updatePageSize = this.updatePageSize.bind(this);
         this.onNavigate = this.onNavigate.bind(this);
     }
@@ -26,14 +28,24 @@ class App extends React.Component {
                     headers: {'Accept' : 'application/schema+json'}
                 }).then(schema => {
                     this.schema = schema.entity;
+                    this.links = lectureCollection.entity._links;
                     return lectureCollection;
                 });
-            }).done(lectureCollection =>{
+            }).then(lectureCollection => {
+                return lectureCollection.entity._embedded.lectures.map(lecture =>
+                        client({
+                            method: 'GET',
+                            path: lecture._links.self.href
+                        })
+                );
+            }).then(lecturePromises => {
+                return when.all(lecturePromises);
+            }).done(lectures => {
                 this.setState({
-                    lectures : lectureCollection.entity._embedded.lectures,
+                    lectures: lectures,
                     attributes: Object.keys(this.schema.properties),
-                    pageSize : pageSize,
-                    links: lectureCollection.entity._links
+                    pageSize: pageSize,
+                    links: this.links
                 });
             });
     }
@@ -62,8 +74,27 @@ class App extends React.Component {
         });
     }
 
+    onUpdate(lecture, updatedLecture) {
+        client({
+            method: 'PUT',
+            path: lecture.entity._links.self.href,
+            entity: updatedLecture,
+            headers: {
+                'Content-Type': 'application/json',
+                'If-Match': lecture.headers.Etag
+            }
+        }).done(response => {
+            this.loadFromServer(this.state.pageSize);
+        }, response => {
+            if (response.status.code === 412) {
+                alert('DENIED: Unable to update ' +
+                    lecture.entity._links.self.href + '. Your copy is stale.');
+            }
+        });
+    }
+
     onDelete(lecture) {
-        client({method: 'DELETE', path: lecture._links.self.href}).done(response => {
+        client({method: 'DELETE', path: lecture.entity._links.self.href}).done(response => {
             this.loadFromServer(this.state.pageSize);
         });
     }
@@ -75,15 +106,28 @@ class App extends React.Component {
     }
 
     onNavigate(navUri) {
-        client({method: 'GET', path: navUri})
-        .done(lectureCollection => {
-            this.setState({
-                lectures: lectureCollection.entity._embedded.lectures,
-                attributes: this.state.attributes,
-                pageSize: this.state.pageSize,
-                links: lectureCollection.entity._links
-            });
-        });
+        client({
+            method: 'GET', 
+            path: navUri
+        }).then(lectureCollection => {
+			this.links = lectureCollection.entity._links;
+
+			return lectureCollection.entity._embedded.lectures.map(lecture =>
+					client({
+						method: 'GET',
+						path: lecture._links.self.href
+					})
+			);
+		}).then(lecturePromises => {
+			return when.all(lecturePromises);
+		}).done(lectures => {
+			this.setState({
+				lectures: lectures,
+				attributes: Object.keys(this.schema.properties),
+				pageSize: this.state.pageSize,
+				links: this.links
+			});
+		});
     }
 
     render() {
@@ -93,7 +137,9 @@ class App extends React.Component {
                 <LectureList lectures={this.state.lectures} 
                                         links={this.state.links}  
                                         pageSize={this.state.pageSize}
+                                        attributes={this.state.attributes}
                                         onNavigate={this.onNavigate}
+                                        onUpdate={this.onUpdate}
                                         onDelete={this.onDelete}
                                         updatePageSize={this.updatePageSize}
                                         />
@@ -154,6 +200,56 @@ class CreateDialog extends React.Component {
 	}
 }
 
+class UpdateDialog extends React.Component {
+
+	constructor(props) {
+		super(props);
+		this.handleSubmit = this.handleSubmit.bind(this);
+	}
+
+	handleSubmit(e) {
+		e.preventDefault();
+		const updatedLecture = {};
+		this.props.attributes.forEach(attribute => {
+			updatedLecture[attribute] = ReactDOM.findDOMNode(this.refs[attribute]).value.trim();
+		});
+		this.props.onUpdate(this.props.lecture, updatedLecture);
+		window.location = "#";
+	}
+
+	render() {
+        //using index is an anti-pattern. But it used to get rid of 'Encountered two children with the same key,...' warning message.
+        const inputs = this.props.attributes.map((attribute, idx) =>
+			<p key={this.props.lecture.entity[attribute] + idx}>
+				<input type="text" placeholder={attribute}
+					   defaultValue={this.props.lecture.entity[attribute]}
+					   ref={attribute} className="field"/>
+			</p>
+		);
+        
+        const dialogId = "updatedLecture-" + this.props.lecture.entity._links.self.href;
+
+		return (
+			<div key={this.props.lecture.entity._links.self.href}>
+				<a href={"#" + dialogId}>Update</a>
+				<div id={dialogId} className="modalDialog">
+					<div>
+						<a href="#" title="Close" className="close">X</a>
+
+						<h2>Update a lecture</h2>
+
+						<form>
+							{inputs}
+							<button onClick={this.handleSubmit}>Update</button>
+						</form>
+					</div>
+				</div>
+			</div>
+		)
+	}
+
+}
+
 class LectureList extends React.Component{
     
     constructor(props) {
@@ -198,7 +294,11 @@ class LectureList extends React.Component{
 
     render() {
         const lectures = this.props.lectures.map(lecture =>
-            <Lecture key={lecture._links.self.href} lecture={lecture} onDelete={this.props.onDelete}/>
+            <Lecture key={lecture.entity._links.self.href} 
+                            lecture={lecture}  
+                            attributes={this.props.attributes}
+                            onUpdate={this.props.onUpdate}
+                            onDelete={this.props.onDelete}/>
         );
     
         const navLinks = [];
@@ -226,6 +326,7 @@ class LectureList extends React.Component{
                             <th>Description</th>
                             <th>Writer</th>
                             <th>마지막 수정 일시</th>
+                            <th>수정</th>
                             <th>삭제</th>
                         </tr>
                         {lectures}
@@ -253,11 +354,14 @@ class Lecture extends React.Component{
     render() {
         return (
             <tr>
-                <td>{this.props.lecture.id}</td>
-                <td>{this.props.lecture.title}</td>
-                <td>{this.props.lecture.description}</td>
-                <td>{this.props.lecture.creator}</td>
-                <td>{this.props.lecture.updatedAt}</td>
+                <td>{this.props.lecture.entity.id}</td>
+                <td>{this.props.lecture.entity.title}</td>
+                <td>{this.props.lecture.entity.description}</td>
+                <td>{this.props.lecture.entity.creator}</td>
+                <td>{this.props.lecture.entity.updatedAt}</td>
+                <td>
+					<UpdateDialog lecture={this.props.lecture} attributes={this.props.attributes} onUpdate={this.props.onUpdate}/>
+				</td>
                 <td>
 					<button onClick={this.handleDelete}>Delete</button>
 				</td>

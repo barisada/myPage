@@ -1,10 +1,12 @@
 package com.barisada.myPage.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import javax.persistence.Entity;
 import javax.persistence.GeneratedValue;
 import javax.persistence.Id;
+import javax.persistence.Version;
 import java.time.LocalDateTime;
 
 @Data
@@ -20,6 +22,9 @@ public class Lecture {
     private String updator;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    @Version @JsonIgnore
+    private Long version;
 
     private Lecture(){}
 
