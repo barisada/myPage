@@ -3,6 +3,7 @@ const ReactDOM = require('react-dom');
 const client = require('./client');
 const follow = require('./follow')
 const when = require('when');
+const stompClient = require('./websocket-listener');
 
 const root = '/api';
 const defaultPageSize = 3;
@@ -11,12 +12,14 @@ class App extends React.Component {
 
     constructor(props) {
         super(props);
-        this.state = {lectures: [], attributes: [], pageSize: defaultPageSize, links:{}};
+        this.state = {lectures: [], attributes: [], page:1 , pageSize: defaultPageSize, links:{}};
         this.onCreate = this.onCreate.bind(this);
         this.onDelete = this.onDelete.bind(this);
         this.onUpdate = this.onUpdate.bind(this);
         this.updatePageSize = this.updatePageSize.bind(this);
         this.onNavigate = this.onNavigate.bind(this);
+        this.refreshCurrentPage = this.refreshCurrentPage.bind(this);
+		this.refreshAndGoToLastPage = this.refreshAndGoToLastPage.bind(this);
     }
 
     loadFromServer(pageSize){
@@ -32,6 +35,7 @@ class App extends React.Component {
                     return lectureCollection;
                 });
             }).then(lectureCollection => {
+                this.page = lectureCollection.entity.page;
                 return lectureCollection.entity._embedded.lectures.map(lecture =>
                         client({
                             method: 'GET',
@@ -42,6 +46,7 @@ class App extends React.Component {
                 return when.all(lecturePromises);
             }).done(lectures => {
                 this.setState({
+                    page: this.page,
                     lectures: lectures,
                     attributes: Object.keys(this.schema.properties),
                     pageSize: pageSize,
@@ -52,6 +57,54 @@ class App extends React.Component {
 
     componentDidMount() {
         this.loadFromServer(this.state.pageSize);
+        stompClient.register([
+			{route: '/topic/newLecture', callback: this.refreshAndGoToLastPage},
+			{route: '/topic/updateLecture', callback: this.refreshCurrentPage},
+			{route: '/topic/deleteLecture', callback: this.refreshCurrentPage}
+		]);
+    }
+
+    refreshAndGoToLastPage(message) {
+        follow(client, root, [{
+            rel: 'lectures',
+            params: {size: this.state.pageSize}
+        }]).done(response => {
+            if (response.entity._links.last !== undefined) {
+                this.onNavigate(response.entity._links.last.href);
+            } else {
+                this.onNavigate(response.entity._links.self.href);
+            }
+        })
+    }
+    
+    refreshCurrentPage(message) {
+        follow(client, root, [{
+            rel: 'lectures',
+            params: {
+                size: this.state.pageSize,
+                page: this.state.page.number
+            }
+        }]).then(lectureCollection => {
+            this.links = lectureCollection.entity._links;
+            this.page = lectureCollection.entity.page;
+    
+            return lectureCollection.entity._embedded.lectures.map(lecture => {
+                return client({
+                    method: 'GET',
+                    path: lecture._links.self.href
+                })
+            });
+        }).then(lecturePromises => {
+            return when.all(lecturePromises);
+        }).then(lectures => {
+            this.setState({
+                page: this.page,
+                lectures: lectures,
+                attributes: Object.keys(this.schema.properties),
+                pageSize: this.state.pageSize,
+                links: this.links
+            });
+        });
     }
 
     onCreate(newLecture) {
@@ -62,16 +115,7 @@ class App extends React.Component {
                 entity: newLecture,
                 headers: {'Content-Type': 'application/json'}
             })
-        }).then(response => {
-            return follow(client, root, [
-                {rel: 'lectures', params: {'size': this.state.pageSize}}]);
-        }).done(response => {
-            if (typeof response.entity._links.last !== "undefined") {
-                this.onNavigate(response.entity._links.last.href);
-            } else {
-                this.onNavigate(response.entity._links.self.href);
-            }
-        });
+        })
     }
 
     onUpdate(lecture, updatedLecture) {
@@ -84,7 +128,7 @@ class App extends React.Component {
                 'If-Match': lecture.headers.Etag
             }
         }).done(response => {
-            this.loadFromServer(this.state.pageSize);
+           /* Let the websocket handler update the state */
         }, response => {
             if (response.status.code === 412) {
                 alert('DENIED: Unable to update ' +
@@ -94,9 +138,7 @@ class App extends React.Component {
     }
 
     onDelete(lecture) {
-        client({method: 'DELETE', path: lecture.entity._links.self.href}).done(response => {
-            this.loadFromServer(this.state.pageSize);
-        });
+        client({method: 'DELETE', path: lecture.entity._links.self.href})
     }
 
     updatePageSize(pageSize) {
@@ -110,7 +152,8 @@ class App extends React.Component {
             method: 'GET', 
             path: navUri
         }).then(lectureCollection => {
-			this.links = lectureCollection.entity._links;
+            this.links = lectureCollection.entity._links;
+            this.page = lectureCollection.entity.page;
 
 			return lectureCollection.entity._embedded.lectures.map(lecture =>
 					client({
@@ -122,6 +165,7 @@ class App extends React.Component {
 			return when.all(lecturePromises);
 		}).done(lectures => {
 			this.setState({
+                page: this.page,
 				lectures: lectures,
 				attributes: Object.keys(this.schema.properties),
 				pageSize: this.state.pageSize,
@@ -136,6 +180,7 @@ class App extends React.Component {
                 <CreateDialog attributes={this.state.attributes} onCreate={this.onCreate}/>
                 <LectureList lectures={this.state.lectures} 
                                         links={this.state.links}  
+                                        page={this.state.page}
                                         pageSize={this.state.pageSize}
                                         attributes={this.state.attributes}
                                         onNavigate={this.onNavigate}
@@ -293,6 +338,9 @@ class LectureList extends React.Component{
     }
 
     render() {
+        const pageInfo = this.props.page.hasOwnProperty("number") ?
+            <h3>Employees - Page {this.props.page.number + 1} of {this.props.page.totalPages}</h3> : null;
+            
         const lectures = this.props.lectures.map(lecture =>
             <Lecture key={lecture.entity._links.self.href} 
                             lecture={lecture}  
@@ -317,6 +365,7 @@ class LectureList extends React.Component{
 
         return (
             <div>
+                {pageInfo}
                 <input ref="pageSize" defaultValue={this.props.pageSize} onInput={this.handleInput}/>
                 <table>
                     <tbody>
